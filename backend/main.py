@@ -1,22 +1,30 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import pandas as pd
 from pathlib import Path
-
 import os
 from dotenv import load_dotenv
 from google import genai
-from fastapi import FastAPI
-from pydantic import BaseModel
+
+
+# --------------------------------------------------
+# ENVIRONMENT
+# --------------------------------------------------
 
 load_dotenv()
 
 gemini_key = os.getenv("GEMINI_API_KEY")
 
 if not gemini_key:
-    raise ValueError("GEMINI_API_KEY not found in .env")
+    raise ValueError("GEMINI_API_KEY not found in environment variables")
 
 gemini_client = genai.Client(api_key=gemini_key)
+
+
+# --------------------------------------------------
+# AI REQUEST MODEL
+# --------------------------------------------------
 
 class AIRequest(BaseModel):
     segment: str
@@ -27,6 +35,8 @@ class AIRequest(BaseModel):
     avg_monetary: float
     total_revenue: float
     revenue_share: float
+
+
 # --------------------------------------------------
 # APP
 # --------------------------------------------------
@@ -44,7 +54,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "https://insight-ai.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -60,21 +73,24 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 RFM_PATH = BASE_DIR / "data" / "processed" / "rfm_customers.csv"
 SEGMENT_PATH = BASE_DIR / "data" / "processed" / "segment_summary.csv"
 
-
 rfm = pd.read_csv(RFM_PATH)
 segment_summary = pd.read_csv(SEGMENT_PATH)
 
 
 # --------------------------------------------------
-# ROUTES
+# ROOT
 # --------------------------------------------------
 
 @app.get("/")
 def root():
     return {
-        "message": "InsightAI API is running 🚀"
+        "message": "InsightAI API is running"
     }
 
+
+# --------------------------------------------------
+# HEALTH CHECK
+# --------------------------------------------------
 
 @app.get("/api/health")
 def health_check():
@@ -83,6 +99,10 @@ def health_check():
     }
 
 
+# --------------------------------------------------
+# SEGMENTS
+# --------------------------------------------------
+
 @app.get("/api/segments")
 def get_segments():
 
@@ -90,6 +110,10 @@ def get_segments():
         orient="records"
     )
 
+
+# --------------------------------------------------
+# OVERVIEW
+# --------------------------------------------------
 
 @app.get("/api/overview")
 def get_overview():
@@ -100,16 +124,25 @@ def get_overview():
 
     return {
         "total_customers": int(len(rfm)),
+
         "total_revenue": float(
             segment_summary["Total_Revenue"].sum()
         ),
+
         "champions": int(
             champions["Customers"]
         ),
+
         "champion_revenue_share": float(
             champions["Revenue_Share"]
         )
     }
+
+
+# --------------------------------------------------
+# CUSTOMERS
+# --------------------------------------------------
+
 @app.get("/api/customers")
 def get_customers(
     segment: str = "All",
@@ -117,11 +150,12 @@ def get_customers(
     sort_by: str = "Monetary",
     order: str = "desc"
 ):
+
     customers = rfm.copy()
 
-    # Create a display ID because the processed RFM
-    # dataset does not contain the original CustomerID
+    # Create display ID
     customers = customers.reset_index(drop=True)
+
     customers["CustomerID"] = [
         f"CUST-{i + 1:04d}"
         for i in range(len(customers))
@@ -129,15 +163,16 @@ def get_customers(
 
     # Filter by segment
     if segment != "All":
+
         customers = customers[
             customers["Segment"] == segment
         ]
 
     # Search by customer ID
     if search:
+
         customers = customers[
-            customers["CustomerID"]
-            .str.contains(
+            customers["CustomerID"].str.contains(
                 search,
                 case=False,
                 na=False
@@ -145,7 +180,11 @@ def get_customers(
         ]
 
     # Sort
-    if sort_by in ["Recency", "Frequency", "Monetary"]:
+    if sort_by in [
+        "Recency",
+        "Frequency",
+        "Monetary"
+    ]:
 
         customers = customers.sort_values(
             sort_by,
@@ -158,6 +197,12 @@ def get_customers(
     return customers.to_dict(
         orient="records"
     )
+
+
+# --------------------------------------------------
+# AI ANALYST
+# --------------------------------------------------
+
 @app.post("/api/ai/analyze")
 def analyze_segment(request: AIRequest):
 
@@ -186,6 +231,7 @@ Rules:
 """
 
     try:
+
         response = gemini_client.models.generate_content(
             model="gemini-3.6-flash",
             contents=prompt
@@ -196,6 +242,7 @@ Rules:
         }
 
     except Exception as e:
+
         return {
             "error": str(e)
         }
