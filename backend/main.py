@@ -56,7 +56,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "https://insight-ai.vercel.app"
+        "https://insight-ai-kohl.vercel.app/"
     ],
     allow_credentials=True,
     allow_methods=["*"],
